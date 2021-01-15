@@ -293,6 +293,7 @@ import (
 	ago                   "AGO"
 	algorithm             "ALGORITHM"
 	always                "ALWAYS"
+	address               "ADDRESS"
 	any                   "ANY"
 	ascii                 "ASCII"
 	autoIdCache           "AUTO_ID_CACHE"
@@ -377,6 +378,8 @@ import (
 	event                 "EVENT"
 	events                "EVENTS"
 	evolve                "EVOLVE"
+	port                  "PORT"
+	extension             "EXTENSION"
 	exchange              "EXCHANGE"
 	exclusive             "EXCLUSIVE"
 	execute               "EXECUTE"
@@ -536,6 +539,7 @@ import (
 	serializable          "SERIALIZABLE"
 	session               "SESSION"
 	setval                "SETVAL"
+	server                "SERVER"
 	shardRowIDBits        "SHARD_ROW_ID_BITS"
 	share                 "SHARE"
 	shared                "SHARED"
@@ -606,6 +610,7 @@ import (
 	week                  "WEEK"
 	weightString          "WEIGHT_STRING"
 	without               "WITHOUT"
+	wrapper               "WRAPPER"
 	x509                  "X509"
 	yearType              "YEAR"
 	wait                  "WAIT"
@@ -813,6 +818,9 @@ import (
 	BinlogStmt             "Binlog base64 statement"
 	BRIEStmt               "BACKUP or RESTORE statement"
 	CommitStmt             "COMMIT statement"
+	CreateExtensionStmt    "CREATE EXTENSION statement"
+	CreateForeignTableStmt "CREATE FOREIGN TABLE statement"
+	CreateServerStmt       "CREATE SERVER statement"
 	CreateTableStmt        "CREATE TABLE statement"
 	CreateViewStmt         "CREATE VIEW  statement"
 	CreateUserStmt         "CREATE User statement"
@@ -934,6 +942,9 @@ import (
 	DatabaseOption                         "CREATE Database specification"
 	DatabaseOptionList                     "CREATE Database specification list"
 	DatabaseOptionListOpt                  "CREATE Database specification list opt"
+	ServerOption                           "CREATE Server specification"
+	ServerOptionList                       "CREATE Server specification list"
+	ServerOptionListOpt                    "CREATE Server specification list opt"
 	DistinctOpt                            "Explicit distinct option"
 	DefaultFalseDistinctOpt                "Distinct option which defaults to false"
 	DefaultTrueDistinctOpt                 "Distinct option which defaults to true"
@@ -1301,6 +1312,10 @@ import (
 	ColumnFormat                    "Column format"
 	DBName                          "Database Name"
 	ExplainFormatType               "explain format type"
+	ExtensionName                   "extension name"
+	ServerName                      "server name"
+	AddressName                     "address name"
+	PortName                        "port name"
 	FieldAsName                     "Field alias name"
 	FieldAsNameOpt                  "Field alias name opt"
 	FieldTerminator                 "Field terminator"
@@ -3494,6 +3509,115 @@ DatabaseOptionList:
 
 /*******************************************************************
  *
+ *  Create Foreign Data Wrapper Statement
+ *
+ *  Example:
+ *      CREATE EXTENSION fdw_name
+ *******************************************************************/
+CreateExtensionStmt:
+	"CREATE" "EXTENSION" ExtensionName
+	{
+		$$ = &ast.CreateExtensionStmt{
+			Name: $3,
+		}
+	}
+
+ExtensionName:
+	Identifier
+
+/*******************************************************************
+ *
+ *  Create Server Statement
+ *
+ *  Example:
+ *      CREATE SERVER server_name FOREIGN DATA WRAPPER fdw_name
+ *******************************************************************/
+CreateServerStmt:
+	"CREATE" "SERVER" ServerName "FOREIGN" "DATA" "WRAPPER" ExtensionName ServerOptionListOpt
+	{
+		$$ = &ast.CreateServerStmt{
+			Name:               $3,
+			ForeignDataWrapper: $7,
+			Options:            $8.([]*ast.ServerOption),
+		}
+	}
+
+ServerName:
+	stringLit
+
+ServerOption:
+	DefaultKwdOpt "ADDRESS" AddressName "PORT" PortName
+	{
+		$$ = &ast.ServerOption{
+			Address: $3,
+			Port:    $5,
+		}
+	}
+
+AddressName:
+	stringLit
+
+PortName:
+	stringLit
+
+ServerOptionListOpt:
+	{
+		$$ = []*ast.ServerOption{}
+	}
+|	ServerOptionList
+
+ServerOptionList:
+	ServerOption
+	{
+		$$ = []*ast.ServerOption{$1.(*ast.ServerOption)}
+	}
+|	ServerOptionList ServerOption
+	{
+		$$ = append($1.([]*ast.ServerOption), $2.(*ast.ServerOption))
+	}
+
+/*******************************************************************
+ *
+ *  Create Foreign Table Statement
+ *
+ *  Example:
+ *      CREATE FOREIGN TABLE table_name
+ *      (
+ *          P_Id int NOT NULL,
+ *          LastName varchar(255) NOT NULL,
+ *          FirstName varchar(255),
+ *          Address varchar(255),
+ *          City varchar(255),
+ *          PRIMARY KEY (P_Id)
+ *      ) SERVER server_name
+ *******************************************************************/
+CreateForeignTableStmt:
+	"CREATE" "FOREIGN" "TABLE" IfNotExists TableName "SERVER" ServerName TableElementListOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
+	{
+		stmt := $8.(*ast.CreateForeignTableStmt)
+		stmt.Table = $5.(*ast.TableName)
+		stmt.IfNotExists = $4.(bool)
+		stmt.Options = $9.([]*ast.TableOption)
+		if $10 != nil {
+			stmt.Partition = $10.(*ast.PartitionOptions)
+		}
+		stmt.OnDuplicate = $11.(ast.OnDuplicateKeyHandlingType)
+		stmt.Select = $13.(*ast.CreateTableStmt).Select
+		stmt.Server = $7
+		$$ = stmt
+	}
+|	"CREATE" "FOREIGN" "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen "SERVER" stringLit
+	{
+		$$ = &ast.CreateForeignTableStmt{
+			Table:       $5.(*ast.TableName),
+			ReferTable:  $6.(*ast.TableName),
+			IfNotExists: $4.(bool),
+			Server:      $7,
+		}
+	}
+
+/*******************************************************************
+ *
  *  Create Table Statement
  *
  *  Example:
@@ -5244,6 +5368,11 @@ Identifier:
 UnReservedKeyword:
 	"ACTION"
 |	"ADVISE"
+|	"ADDRESS"
+|	"PORT"
+|	"EXTENSION"
+|	"SERVER"
+|	"WRAPPER"
 |	"ASCII"
 |	"AUTO_ID_CACHE"
 |	"AUTO_INCREMENT"
@@ -10042,6 +10171,9 @@ Statement:
 |	ExplainStmt
 |	ChangeStmt
 |	CreateDatabaseStmt
+|	CreateExtensionStmt
+|	CreateServerStmt
+|	CreateForeignTableStmt
 |	CreateIndexStmt
 |	CreateTableStmt
 |	CreateViewStmt

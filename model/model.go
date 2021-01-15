@@ -325,7 +325,8 @@ type TableInfo struct {
 
 	// IsColumnar means the table is column-oriented.
 	// It's true when the engine of the table is TiFlash only.
-	IsColumnar bool `json:"is_columnar"`
+	IsColumnar bool   `json:"is_columnar"`
+	Engine     string `json:"engine"`
 }
 
 // TableLockInfo provides meta data describing a table lock.

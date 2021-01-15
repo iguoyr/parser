@@ -45,6 +45,9 @@ func (ts *testDDLSuite) TestDDLVisitorCover(c *C) {
 		// TODO: cover children
 		{&AlterTableStmt{Table: &TableName{}, Specs: []*AlterTableSpec{alterTableSpec}}, 0, 0},
 		{&CreateIndexStmt{Table: &TableName{}}, 0, 0},
+		{&CreateExtensionStmt{Name: ""}, 0, 0},
+		{&CreateForeignTableStmt{Table: &TableName{}}, 0, 0},
+		{&CreateServerStmt{Name: "", ForeignDataWrapper: "", Options: []*ServerOption{}}, 0, 0},
 		{&CreateTableStmt{Table: &TableName{}, ReferTable: &TableName{}}, 0, 0},
 		{&CreateViewStmt{ViewName: &TableName{}, Select: &SelectStmt{}}, 0, 0},
 		{&AlterTableSpec{}, 0, 0},
