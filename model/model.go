@@ -259,6 +259,16 @@ var ExtraHandleName = NewCIStr("_tidb_rowid")
 // ExtraPartitionIdName is the name of ExtraPartitionId Column.
 var ExtraPartitionIdName = NewCIStr("_tidb_pid")
 
+type ForeignServerInfo struct {
+	ID   int64 `json:"id"`
+	Name CIStr `json:"name"`
+
+	Address string      `json:"address"`
+	Port    string      `json:"port"`
+	Comment string      `json:"comment"`
+	State   SchemaState `json:"state"`
+}
+
 // TableInfo provides meta data describing a DB table.
 type TableInfo struct {
 	ID      int64  `json:"id"`
@@ -325,8 +335,12 @@ type TableInfo struct {
 
 	// IsColumnar means the table is column-oriented.
 	// It's true when the engine of the table is TiFlash only.
-	IsColumnar bool   `json:"is_columnar"`
-	Engine     string `json:"engine"`
+	IsColumnar bool `json:"is_columnar"`
+
+	// embedded engine or plugin engine
+	Engine string `json:"engine"`
+	// foreign table remote server
+	Server *ForeignServerInfo `json:"server"`
 }
 
 // TableLockInfo provides meta data describing a table lock.

@@ -2274,6 +2274,9 @@ func (s *testParserSuite) TestDDL(c *C) {
 		{"create database xxx default encryption 'Y'", true, "CREATE DATABASE `xxx` ENCRYPTION = 'Y'"},
 		{"create database xxx encryption = N", false, ""},
 
+		// {"create server s1 foreign data wrapper f1 address=127 port=123;", true, "CREATE SERVER s1 FOREIGN DATA WRAPPER f1 ADDRESS=127 PORT=123"},
+		{"create foreign table t (c1 bool, c2 bool) server s1;", true, "CREATE FOREIGN TABLE `t` (`c1` TINYINT(1),`c2` TINYINT(1)) SERVER s1"},
+
 		{"create schema xxx", true, "CREATE DATABASE `xxx`"},
 		{"create schema if exists xxx", false, ""},
 		{"create schema if not exists xxx", true, "CREATE DATABASE IF NOT EXISTS `xxx`"},
@@ -4738,6 +4741,19 @@ func (s *testParserSuite) TestDDLStatements(c *C) {
 		c_json json collate utf8_bin)`
 	stmts, _, err = parser.Parse(createTableStr, "", "")
 	c.Assert(err, IsNil)
+
+	createServerStr := `CREATE SERVER s
+		FOREIGN DATA WRAPPER fdw1
+		ADDRESS=abc PORT=dfs`
+	serverStmts, _, err := parser.Parse(createServerStr, "", "")
+	fmt.Println("err=", err)
+	c.Assert(err, IsNil)
+	serverStmt := serverStmts[0].(*ast.CreateServerStmt)
+	c.Assert(serverStmt.ForeignDataWrapper, Equals, "fdw1")
+	for _, serverOpt := range serverStmt.Options {
+		c.Assert(serverOpt.Address, Equals, "abc")
+		c.Assert(serverOpt.Port, Equals, "dfs")
+	}
 
 	createTableStr = `CREATE TABLE t (c_double double(10))`
 	_, _, err = parser.Parse(createTableStr, "", "")

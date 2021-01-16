@@ -818,8 +818,6 @@ import (
 	BinlogStmt             "Binlog base64 statement"
 	BRIEStmt               "BACKUP or RESTORE statement"
 	CommitStmt             "COMMIT statement"
-	CreateExtensionStmt    "CREATE EXTENSION statement"
-	CreateForeignTableStmt "CREATE FOREIGN TABLE statement"
 	CreateServerStmt       "CREATE SERVER statement"
 	CreateTableStmt        "CREATE TABLE statement"
 	CreateViewStmt         "CREATE VIEW  statement"
@@ -1020,7 +1018,7 @@ import (
 	OnDuplicateKeyUpdate                   "ON DUPLICATE KEY UPDATE value list"
 	DuplicateOpt                           "[IGNORE|REPLACE] in CREATE TABLE ... SELECT statement or LOAD DATA statement"
 	OptFull                                "Full or empty"
-	OptTemporary                           "TEMPORARY or empty"
+	OptForeignOrTemporary                  "FOREIGN or Temporary"
 	OptOrder                               "Optional ordering keyword: ASC/DESC. Default to ASC"
 	Order                                  "Ordering keyword: ASC or DESC"
 	OptionLevel                            "3 levels used by lightning config"
@@ -1032,6 +1030,7 @@ import (
 	AlterOrderItem                         "Alter Order item"
 	AlterOrderList                         "Alter Order list"
 	QuickOptional                          "QUICK or empty"
+	ServerOpt                              "Server option"
 	PartitionDefinition                    "Partition definition"
 	PartitionDefinitionList                "Partition definition list"
 	PartitionDefinitionListOpt             "Partition definition list option"
@@ -1314,8 +1313,6 @@ import (
 	ExplainFormatType               "explain format type"
 	ExtensionName                   "extension name"
 	ServerName                      "server name"
-	AddressName                     "address name"
-	PortName                        "port name"
 	FieldAsName                     "Field alias name"
 	FieldAsNameOpt                  "Field alias name opt"
 	FieldTerminator                 "Field terminator"
@@ -3509,24 +3506,6 @@ DatabaseOptionList:
 
 /*******************************************************************
  *
- *  Create Foreign Data Wrapper Statement
- *
- *  Example:
- *      CREATE EXTENSION fdw_name
- *******************************************************************/
-CreateExtensionStmt:
-	"CREATE" "EXTENSION" ExtensionName
-	{
-		$$ = &ast.CreateExtensionStmt{
-			Name: $3,
-		}
-	}
-
-ExtensionName:
-	Identifier
-
-/*******************************************************************
- *
  *  Create Server Statement
  *
  *  Example:
@@ -3542,29 +3521,27 @@ CreateServerStmt:
 		}
 	}
 
+ExtensionName:
+	Identifier
+
 ServerName:
-	stringLit
+	Identifier
 
 ServerOption:
-	DefaultKwdOpt "ADDRESS" AddressName "PORT" PortName
+	"ADDRESS" EqOpt stringLit
 	{
-		$$ = &ast.ServerOption{
-			Address: $3,
-			Port:    $5,
-		}
+		$$ = &ast.ServerOption{Tp: ast.ServerOptionAddress, Address: $3}
 	}
-
-AddressName:
-	stringLit
-
-PortName:
-	stringLit
+|	"PORT" EqOpt stringLit
+	{
+		$$ = &ast.ServerOption{Tp: ast.ServerOptionPort, Port: $3}
+	}
 
 ServerOptionListOpt:
 	{
 		$$ = []*ast.ServerOption{}
 	}
-|	ServerOptionList
+|	ServerOptionList %prec lowerThanComma
 
 ServerOptionList:
 	ServerOption
@@ -3574,46 +3551,6 @@ ServerOptionList:
 |	ServerOptionList ServerOption
 	{
 		$$ = append($1.([]*ast.ServerOption), $2.(*ast.ServerOption))
-	}
-
-/*******************************************************************
- *
- *  Create Foreign Table Statement
- *
- *  Example:
- *      CREATE FOREIGN TABLE table_name
- *      (
- *          P_Id int NOT NULL,
- *          LastName varchar(255) NOT NULL,
- *          FirstName varchar(255),
- *          Address varchar(255),
- *          City varchar(255),
- *          PRIMARY KEY (P_Id)
- *      ) SERVER server_name
- *******************************************************************/
-CreateForeignTableStmt:
-	"CREATE" "FOREIGN" "TABLE" IfNotExists TableName "SERVER" ServerName TableElementListOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
-	{
-		stmt := $8.(*ast.CreateForeignTableStmt)
-		stmt.Table = $5.(*ast.TableName)
-		stmt.IfNotExists = $4.(bool)
-		stmt.Options = $9.([]*ast.TableOption)
-		if $10 != nil {
-			stmt.Partition = $10.(*ast.PartitionOptions)
-		}
-		stmt.OnDuplicate = $11.(ast.OnDuplicateKeyHandlingType)
-		stmt.Select = $13.(*ast.CreateTableStmt).Select
-		stmt.Server = $7
-		$$ = stmt
-	}
-|	"CREATE" "FOREIGN" "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen "SERVER" stringLit
-	{
-		$$ = &ast.CreateForeignTableStmt{
-			Table:       $5.(*ast.TableName),
-			ReferTable:  $6.(*ast.TableName),
-			IfNotExists: $4.(bool),
-			Server:      $7,
-		}
 	}
 
 /*******************************************************************
@@ -3632,34 +3569,55 @@ CreateForeignTableStmt:
  *      )
  *******************************************************************/
 CreateTableStmt:
-	"CREATE" OptTemporary "TABLE" IfNotExists TableName TableElementListOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
+	"CREATE" OptForeignOrTemporary "TABLE" IfNotExists TableName TableElementListOpt ServerOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
 	{
 		stmt := $6.(*ast.CreateTableStmt)
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
 		stmt.Table = $5.(*ast.TableName)
 		stmt.IfNotExists = $4.(bool)
-		stmt.IsTemporary = $2.(bool)
-		stmt.Options = $7.([]*ast.TableOption)
-		if $8 != nil {
-			stmt.Partition = $8.(*ast.PartitionOptions)
+		stmt.Options = $8.([]*ast.TableOption)
+		if $9 != nil {
+			stmt.Partition = $9.(*ast.PartitionOptions)
 		}
-		stmt.OnDuplicate = $9.(ast.OnDuplicateKeyHandlingType)
-		stmt.Select = $11.(*ast.CreateTableStmt).Select
+		if $7 != nil {
+			stmt.Server = $7.(string)
+		}
+		stmt.OnDuplicate = $10.(ast.OnDuplicateKeyHandlingType)
+		stmt.Select = $12.(*ast.CreateTableStmt).Select
 		$$ = stmt
 	}
-|	"CREATE" OptTemporary "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen
+|	"CREATE" OptForeignOrTemporary "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen
 	{
-		$$ = &ast.CreateTableStmt{
+		stmt := &ast.CreateTableStmt{
 			Table:       $5.(*ast.TableName),
 			ReferTable:  $6.(*ast.TableName),
 			IfNotExists: $4.(bool),
-			IsTemporary: $2.(bool),
 		}
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
+		$$ = stmt
 	}
 
 DefaultKwdOpt:
 	%prec lowerThanCharsetKwd
 	{}
 |	"DEFAULT"
+
+ServerOpt:
+	{
+		$$ = nil
+	}
+|	"SERVER" ServerName
+	{
+		$$ = $2
+	}
 
 PartitionOpt:
 	{
@@ -4257,19 +4215,32 @@ DropIndexStmt:
 	}
 
 DropTableStmt:
-	"DROP" OptTemporary TableOrTables IfExists TableNameList RestrictOrCascadeOpt
+	"DROP" OptForeignOrTemporary TableOrTables IfExists TableNameList RestrictOrCascadeOpt
 	{
-		$$ = &ast.DropTableStmt{IfExists: $4.(bool), Tables: $5.([]*ast.TableName), IsView: false, IsTemporary: $2.(bool)}
+		stmt := &ast.DropTableStmt{
+			IfExists: $4.(bool),
+			Tables:   $5.([]*ast.TableName),
+			IsView:   false,
+		}
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
+		$$ = stmt
 	}
 
-OptTemporary:
-	/* empty */
+OptForeignOrTemporary:
 	{
-		$$ = false
+		$$ = 0
+	}
+|	"FOREIGN"
+	{
+		$$ = 1
 	}
 |	"TEMPORARY"
 	{
-		$$ = true
+		$$ = 2
 		yylex.AppendError(yylex.Errorf("TiDB doesn't support TEMPORARY TABLE, TEMPORARY will be parsed but ignored."))
 		parser.lastErrorAsWarn()
 	}
@@ -10171,9 +10142,7 @@ Statement:
 |	ExplainStmt
 |	ChangeStmt
 |	CreateDatabaseStmt
-|	CreateExtensionStmt
 |	CreateServerStmt
-|	CreateForeignTableStmt
 |	CreateIndexStmt
 |	CreateTableStmt
 |	CreateViewStmt
