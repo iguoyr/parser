@@ -38,6 +38,7 @@ var (
 	_ DDLNode = &RenameTableStmt{}
 	_ DDLNode = &TruncateTableStmt{}
 	_ DDLNode = &RepairTableStmt{}
+	_ DDLNode = &CreateServerStmt{}
 
 	_ Node = &AlterTableSpec{}
 	_ Node = &ColumnDef{}
@@ -919,6 +920,73 @@ func (n *ColumnDef) Validate() bool {
 	return !(generatedCol && illegalOpt4gc)
 }
 
+type ServerOptionType int
+
+// Database option types.
+const (
+	ServerOptionNone ServerOptionType = iota
+	ServerOptionAddress
+	ServerOptionPort
+)
+
+type ServerOption struct {
+	Tp      ServerOptionType
+	Address string
+	Port    string
+}
+
+// CreateServerStmt is a statement to create a server.
+type CreateServerStmt struct {
+	ddlNode
+
+	Name               string
+	ForeignDataWrapper string
+	Options            []*ServerOption
+}
+
+// Restore implements Node interface.
+func (n *CreateServerStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("CREATE SERVER")
+	ctx.WriteName(n.Name)
+	ctx.WriteKeyWord(" FOREIGN DATA WRAPPER ")
+	ctx.WriteName(n.ForeignDataWrapper)
+
+	for i, option := range n.Options {
+		ctx.WritePlain(" ")
+		if err := option.Restore(ctx); err != nil {
+			return errors.Annotatef(err, "An error occurred while splicing CreateServerStmt ServerOption: [%v]", i)
+		}
+	}
+	return nil
+}
+
+// Restore implements Node interface.
+func (n *ServerOption) Restore(ctx *format.RestoreCtx) error {
+	switch n.Tp {
+	case ServerOptionAddress:
+		ctx.WriteKeyWord("ADDRESS")
+		ctx.WritePlain(" = ")
+		ctx.WritePlain(n.Address)
+	case ServerOptionPort:
+		ctx.WriteKeyWord("PORT")
+		ctx.WritePlain(" = ")
+		ctx.WritePlain(n.Port)
+	default:
+		return errors.Errorf("invalid ServerOptionType: %d", n.Tp)
+	}
+	return nil
+}
+
+// Accept implements Node Accept interface.
+func (n *CreateServerStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*CreateServerStmt)
+	return v.Leave(n)
+}
+
 // CreateTableStmt is a statement to create a table.
 // See https://dev.mysql.com/doc/refman/5.7/en/create-table.html
 type CreateTableStmt struct {
@@ -926,6 +994,7 @@ type CreateTableStmt struct {
 
 	IfNotExists bool
 	IsTemporary bool
+	IsForeign   bool
 	Table       *TableName
 	ReferTable  *TableName
 	Cols        []*ColumnDef
@@ -934,12 +1003,15 @@ type CreateTableStmt struct {
 	Partition   *PartitionOptions
 	OnDuplicate OnDuplicateKeyHandlingType
 	Select      ResultSetNode
+	Server      string
 }
 
 // Restore implements Node interface.
 func (n *CreateTableStmt) Restore(ctx *format.RestoreCtx) error {
 	if n.IsTemporary {
 		ctx.WriteKeyWord("CREATE TEMPORARY TABLE ")
+	} else if n.IsForeign {
+		ctx.WriteKeyWord("CREATE FOREIGN TABLE ")
 	} else {
 		ctx.WriteKeyWord("CREATE TABLE ")
 	}
@@ -978,6 +1050,11 @@ func (n *CreateTableStmt) Restore(ctx *format.RestoreCtx) error {
 			}
 		}
 		ctx.WritePlain(")")
+	}
+
+	if n.Server != "" {
+		ctx.WriteKeyWord(" SERVER ")
+		ctx.WritePlain(n.Server)
 	}
 
 	for i, option := range n.Options {
@@ -1072,6 +1149,7 @@ type DropTableStmt struct {
 	Tables      []*TableName
 	IsView      bool
 	IsTemporary bool // make sense ONLY if/when IsView == false
+	IsForeign   bool
 }
 
 // Restore implements Node interface.
@@ -1081,6 +1159,8 @@ func (n *DropTableStmt) Restore(ctx *format.RestoreCtx) error {
 	} else {
 		if n.IsTemporary {
 			ctx.WriteKeyWord("DROP TEMPORARY TABLE ")
+		} else if n.IsForeign {
+			ctx.WriteKeyWord("DROP FOREIGN TABLE ")
 		} else {
 			ctx.WriteKeyWord("DROP TABLE ")
 		}

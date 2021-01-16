@@ -170,6 +170,9 @@ func (ts *testMiscSuite) TestSensitiveStatement(c *C) {
 		&DropTableStmt{},
 		&RenameTableStmt{},
 		&TruncateTableStmt{},
+		&CreateExtensionStmt{},
+		&CreateForeignTableStmt{},
+		&CreateServerStmt{},
 	}
 	for _, stmt := range negative {
 		_, ok := stmt.(SensitiveStmtNode)

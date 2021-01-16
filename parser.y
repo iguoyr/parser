@@ -293,6 +293,7 @@ import (
 	ago                   "AGO"
 	algorithm             "ALGORITHM"
 	always                "ALWAYS"
+	address               "ADDRESS"
 	any                   "ANY"
 	ascii                 "ASCII"
 	autoIdCache           "AUTO_ID_CACHE"
@@ -377,6 +378,8 @@ import (
 	event                 "EVENT"
 	events                "EVENTS"
 	evolve                "EVOLVE"
+	port                  "PORT"
+	extension             "EXTENSION"
 	exchange              "EXCHANGE"
 	exclusive             "EXCLUSIVE"
 	execute               "EXECUTE"
@@ -536,6 +539,7 @@ import (
 	serializable          "SERIALIZABLE"
 	session               "SESSION"
 	setval                "SETVAL"
+	server                "SERVER"
 	shardRowIDBits        "SHARD_ROW_ID_BITS"
 	share                 "SHARE"
 	shared                "SHARED"
@@ -606,6 +610,7 @@ import (
 	week                  "WEEK"
 	weightString          "WEIGHT_STRING"
 	without               "WITHOUT"
+	wrapper               "WRAPPER"
 	x509                  "X509"
 	yearType              "YEAR"
 	wait                  "WAIT"
@@ -813,6 +818,7 @@ import (
 	BinlogStmt             "Binlog base64 statement"
 	BRIEStmt               "BACKUP or RESTORE statement"
 	CommitStmt             "COMMIT statement"
+	CreateServerStmt       "CREATE SERVER statement"
 	CreateTableStmt        "CREATE TABLE statement"
 	CreateViewStmt         "CREATE VIEW  statement"
 	CreateUserStmt         "CREATE User statement"
@@ -934,6 +940,9 @@ import (
 	DatabaseOption                         "CREATE Database specification"
 	DatabaseOptionList                     "CREATE Database specification list"
 	DatabaseOptionListOpt                  "CREATE Database specification list opt"
+	ServerOption                           "CREATE Server specification"
+	ServerOptionList                       "CREATE Server specification list"
+	ServerOptionListOpt                    "CREATE Server specification list opt"
 	DistinctOpt                            "Explicit distinct option"
 	DefaultFalseDistinctOpt                "Distinct option which defaults to false"
 	DefaultTrueDistinctOpt                 "Distinct option which defaults to true"
@@ -1009,7 +1018,7 @@ import (
 	OnDuplicateKeyUpdate                   "ON DUPLICATE KEY UPDATE value list"
 	DuplicateOpt                           "[IGNORE|REPLACE] in CREATE TABLE ... SELECT statement or LOAD DATA statement"
 	OptFull                                "Full or empty"
-	OptTemporary                           "TEMPORARY or empty"
+	OptForeignOrTemporary                  "FOREIGN or Temporary"
 	OptOrder                               "Optional ordering keyword: ASC/DESC. Default to ASC"
 	Order                                  "Ordering keyword: ASC or DESC"
 	OptionLevel                            "3 levels used by lightning config"
@@ -1021,6 +1030,7 @@ import (
 	AlterOrderItem                         "Alter Order item"
 	AlterOrderList                         "Alter Order list"
 	QuickOptional                          "QUICK or empty"
+	ServerOpt                              "Server option"
 	PartitionDefinition                    "Partition definition"
 	PartitionDefinitionList                "Partition definition list"
 	PartitionDefinitionListOpt             "Partition definition list option"
@@ -1301,6 +1311,8 @@ import (
 	ColumnFormat                    "Column format"
 	DBName                          "Database Name"
 	ExplainFormatType               "explain format type"
+	ExtensionName                   "extension name"
+	ServerName                      "server name"
 	FieldAsName                     "Field alias name"
 	FieldAsNameOpt                  "Field alias name opt"
 	FieldTerminator                 "Field terminator"
@@ -3494,6 +3506,55 @@ DatabaseOptionList:
 
 /*******************************************************************
  *
+ *  Create Server Statement
+ *
+ *  Example:
+ *      CREATE SERVER server_name FOREIGN DATA WRAPPER fdw_name
+ *******************************************************************/
+CreateServerStmt:
+	"CREATE" "SERVER" ServerName "FOREIGN" "DATA" "WRAPPER" ExtensionName ServerOptionListOpt
+	{
+		$$ = &ast.CreateServerStmt{
+			Name:               $3,
+			ForeignDataWrapper: $7,
+			Options:            $8.([]*ast.ServerOption),
+		}
+	}
+
+ExtensionName:
+	Identifier
+
+ServerName:
+	Identifier
+
+ServerOption:
+	"ADDRESS" EqOpt stringLit
+	{
+		$$ = &ast.ServerOption{Tp: ast.ServerOptionAddress, Address: $3}
+	}
+|	"PORT" EqOpt stringLit
+	{
+		$$ = &ast.ServerOption{Tp: ast.ServerOptionPort, Port: $3}
+	}
+
+ServerOptionListOpt:
+	{
+		$$ = []*ast.ServerOption{}
+	}
+|	ServerOptionList %prec lowerThanComma
+
+ServerOptionList:
+	ServerOption
+	{
+		$$ = []*ast.ServerOption{$1.(*ast.ServerOption)}
+	}
+|	ServerOptionList ServerOption
+	{
+		$$ = append($1.([]*ast.ServerOption), $2.(*ast.ServerOption))
+	}
+
+/*******************************************************************
+ *
  *  Create Table Statement
  *
  *  Example:
@@ -3508,34 +3569,55 @@ DatabaseOptionList:
  *      )
  *******************************************************************/
 CreateTableStmt:
-	"CREATE" OptTemporary "TABLE" IfNotExists TableName TableElementListOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
+	"CREATE" OptForeignOrTemporary "TABLE" IfNotExists TableName TableElementListOpt ServerOpt CreateTableOptionListOpt PartitionOpt DuplicateOpt AsOpt CreateTableSelectOpt
 	{
 		stmt := $6.(*ast.CreateTableStmt)
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
 		stmt.Table = $5.(*ast.TableName)
 		stmt.IfNotExists = $4.(bool)
-		stmt.IsTemporary = $2.(bool)
-		stmt.Options = $7.([]*ast.TableOption)
-		if $8 != nil {
-			stmt.Partition = $8.(*ast.PartitionOptions)
+		stmt.Options = $8.([]*ast.TableOption)
+		if $9 != nil {
+			stmt.Partition = $9.(*ast.PartitionOptions)
 		}
-		stmt.OnDuplicate = $9.(ast.OnDuplicateKeyHandlingType)
-		stmt.Select = $11.(*ast.CreateTableStmt).Select
+		if $7 != nil {
+			stmt.Server = $7.(string)
+		}
+		stmt.OnDuplicate = $10.(ast.OnDuplicateKeyHandlingType)
+		stmt.Select = $12.(*ast.CreateTableStmt).Select
 		$$ = stmt
 	}
-|	"CREATE" OptTemporary "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen
+|	"CREATE" OptForeignOrTemporary "TABLE" IfNotExists TableName LikeTableWithOrWithoutParen
 	{
-		$$ = &ast.CreateTableStmt{
+		stmt := &ast.CreateTableStmt{
 			Table:       $5.(*ast.TableName),
 			ReferTable:  $6.(*ast.TableName),
 			IfNotExists: $4.(bool),
-			IsTemporary: $2.(bool),
 		}
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
+		$$ = stmt
 	}
 
 DefaultKwdOpt:
 	%prec lowerThanCharsetKwd
 	{}
 |	"DEFAULT"
+
+ServerOpt:
+	{
+		$$ = nil
+	}
+|	"SERVER" ServerName
+	{
+		$$ = $2
+	}
 
 PartitionOpt:
 	{
@@ -4133,19 +4215,32 @@ DropIndexStmt:
 	}
 
 DropTableStmt:
-	"DROP" OptTemporary TableOrTables IfExists TableNameList RestrictOrCascadeOpt
+	"DROP" OptForeignOrTemporary TableOrTables IfExists TableNameList RestrictOrCascadeOpt
 	{
-		$$ = &ast.DropTableStmt{IfExists: $4.(bool), Tables: $5.([]*ast.TableName), IsView: false, IsTemporary: $2.(bool)}
+		stmt := &ast.DropTableStmt{
+			IfExists: $4.(bool),
+			Tables:   $5.([]*ast.TableName),
+			IsView:   false,
+		}
+		if $2 == 1 {
+			stmt.IsForeign = true
+		} else if $2 == 2 {
+			stmt.IsTemporary = true
+		}
+		$$ = stmt
 	}
 
-OptTemporary:
-	/* empty */
+OptForeignOrTemporary:
 	{
-		$$ = false
+		$$ = 0
+	}
+|	"FOREIGN"
+	{
+		$$ = 1
 	}
 |	"TEMPORARY"
 	{
-		$$ = true
+		$$ = 2
 		yylex.AppendError(yylex.Errorf("TiDB doesn't support TEMPORARY TABLE, TEMPORARY will be parsed but ignored."))
 		parser.lastErrorAsWarn()
 	}
@@ -5244,6 +5339,11 @@ Identifier:
 UnReservedKeyword:
 	"ACTION"
 |	"ADVISE"
+|	"ADDRESS"
+|	"PORT"
+|	"EXTENSION"
+|	"SERVER"
+|	"WRAPPER"
 |	"ASCII"
 |	"AUTO_ID_CACHE"
 |	"AUTO_INCREMENT"
@@ -10042,6 +10142,7 @@ Statement:
 |	ExplainStmt
 |	ChangeStmt
 |	CreateDatabaseStmt
+|	CreateServerStmt
 |	CreateIndexStmt
 |	CreateTableStmt
 |	CreateViewStmt

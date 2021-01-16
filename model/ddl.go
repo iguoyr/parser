@@ -78,6 +78,7 @@ const (
 	ActionAlterCheckConstraint          ActionType = 45
 	ActionAlterTableAlterPartition      ActionType = 46
 	ActionRenameTables                  ActionType = 47
+	ActionCreateServer                  ActionType = 49
 )
 
 const (
@@ -133,6 +134,7 @@ var actionMap = map[ActionType]string{
 	ActionDropCheckConstraint:           "drop check constraint",
 	ActionAlterCheckConstraint:          "alter check constraint",
 	ActionAlterTableAlterPartition:      "alter partition",
+	ActionCreateServer:                  "create server",
 }
 
 // String return current ddl action in string
